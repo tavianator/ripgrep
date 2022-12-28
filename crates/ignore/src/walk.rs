@@ -1495,6 +1495,7 @@ impl<'s> Worker<'s> {
             return WalkState::Skip;
         }
         for result in readdir {
+            let is_err = result.is_err();
             let state = self.generate_work(
                 &work.ignore,
                 depth + 1,
@@ -1503,6 +1504,12 @@ impl<'s> Worker<'s> {
             );
             if state.is_quit() {
                 return state;
+            }
+            // Break after we see an error.
+            // See https://github.com/rust-lang/rust/issues/50619
+            // and https://github.com/BurntSushi/ripgrep/issues/916
+            if is_err {
+                break;
             }
         }
         WalkState::Continue

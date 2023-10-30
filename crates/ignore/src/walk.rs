@@ -1681,20 +1681,20 @@ impl<'s> Worker<'s> {
                     return None;
                 }
                 None => {
-                    let active = self
-                        .active_workers
-                        .fetch_sub(1, AtomicOrdering::Relaxed);
-                    if active == 1 {
-                        // Every other thread is blocked at the next recv().
-                        // Send the initial quit message and quit.
+                    if self.deactivate_worker() == 0 {
+                        // If deactivate_worker() returns 0, every worker thread
+                        // is currently within the critical section between the
+                        // acquire in deactivate_worker() and the release in
+                        // activate_worker() below.  For this to happen, every
+                        // worker's local deque must be simultaneously empty,
+                        // meaning there is no more work left at all.
                         self.send_quit();
                         return None;
                     }
                     // Wait for next `Work` or `Quit` message.
                     loop {
                         if let Some(v) = self.recv() {
-                            self.active_workers
-                                .fetch_add(1, AtomicOrdering::Relaxed);
+                            self.activate_worker();
                             value = Some(v);
                             break;
                         }
@@ -1733,6 +1733,16 @@ impl<'s> Worker<'s> {
     /// Receive work.
     fn recv(&self) -> Option<Message> {
         self.stack.pop()
+    }
+
+    /// Deactivates a worker and returns the number of currently active workers.
+    fn deactivate_worker(&self) -> usize {
+        self.active_workers.fetch_sub(1, AtomicOrdering::Acquire) - 1
+    }
+
+    /// Reactivates a worker.
+    fn activate_worker(&self) {
+        self.active_workers.fetch_add(1, AtomicOrdering::Release);
     }
 }
 
